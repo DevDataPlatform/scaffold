@@ -1,0 +1,4 @@
+FROM ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/prefect-repo/prefect-proxy-main-image:latest
+
+EXPOSE 4300
+ENTRYPOINT ["gunicorn", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "proxy.main:app", "--bind", "0.0.0.0:4300", "--timeout", "300"]

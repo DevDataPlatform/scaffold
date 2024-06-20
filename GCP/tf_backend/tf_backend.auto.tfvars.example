@@ -1,0 +1,4 @@
+gcp_project_name = "dalgo-prod"
+project_tag      = "dalgo"
+billing_code     = "BillingCode"
+region           = "us-central1"

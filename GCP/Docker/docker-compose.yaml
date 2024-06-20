@@ -1,0 +1,137 @@
+version: "3.9"
+services:
+
+  ## Prefect Proxy
+  prefect_proxy:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/prefect-repo/prefect-proxy-image:latest 
+    restart: always
+    environment:
+      - LOGDIR=logs
+      - PREFECT_API_URL=http://prefect_server:4200/api
+    ports:
+      - "4300:4300"
+    networks:
+      - dalgo_network
+    volumes:
+      - flows_volume:/app/proxy
+
+  ### Prefect Server API and UI
+  prefect_server:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/prefect-repo/prefect-server-image:latest
+    restart: always
+    depends_on:
+      initdb:
+        condition: service_completed_successfully
+    volumes:
+      - prefect:/root/.prefect
+    entrypoint: ["/bootstrap.sh"]
+    environment:
+      - PREFECT_UI_URL=http://prefect_server:4200/api
+      - PREFECT_API_URL=http://prefect_server:4200/api
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_WORK_QUEUE_NAME=ddp
+      - PREFECT_POOL_NAME=default-agent-pool
+      - PREFECT_PROXY_API_PORT=4300
+    ports:
+      - "4200:4200"
+    networks:
+      - dalgo_network
+
+  ## Prefect Agent
+  prefect_agent:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/prefect-repo/prefect-agent-image:latest 
+    restart: always
+    depends_on:
+      prefect_server:
+        condition: service_started
+      prefect_proxy:
+      condition: service_started
+      initdb:
+        condition: service_completed_successfully
+    entrypoint:
+      [
+        "/opt/prefect/entrypoint.sh",
+        "prefect",
+        "agent",
+        "start",
+        "-q",
+        "${PREFECT_WORK_QUEUE_NAME}",
+        "--pool",
+        "${PREFECT_POOL_NAME}",
+      ]
+    environment:
+      - PREFECT_API_URL=http://prefect_server:4200/api
+    networks:
+      - dalgo_network
+    volumes:
+      - flows_volume:/app/proxy
+  app:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/frontend-repo/frontend-image:latest 
+    restart: always
+    networks:
+      - dalgo_network
+    ports:
+      - '3000:3000'
+    entrypoint: ["/bootstrap.sh"]
+
+
+  redis_server:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dalgo_network
+
+  backend:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/backend-repo/backend-image:latest
+    restart: always
+    command: backend
+    depends_on:
+      initdb:
+          condition: service_completed_successfully
+      redis_server:
+        condition: service_started
+    ports:
+      - "8002:8002"
+    networks:
+      - dalgo_network
+  celery_worker:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/backend-repo/backend-image:latest
+    command: celery
+    depends_on:
+      backend:
+        condition: service_started
+      redis_server:
+        condition: service_started
+      initdb:
+        condition: service_completed_successfully
+    networks:
+      - dalgo_network
+  celery_beat:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/backend-repo/backend-image:latest
+    command: beat
+    depends_on:
+      backend:
+        condition: service_started
+      redis_server:
+        condition: service_started
+      initdb:
+        condition: service_completed_successfully
+    volumes:
+      - celerybeat_volume:/data
+    networks:
+      - dalgo_network
+  initdb:
+    image: ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/backend-repo/backend-image:latest
+    command: initdb
+    networks:
+      - dalgo_network
+
+
+volumes:
+  prefect:
+  redis_data:
+  celerybeat_volume:
+  flows_volume:

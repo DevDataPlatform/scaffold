@@ -1,0 +1,59 @@
+
+
+# Stage 1: build
+
+## TODO: Change to dockerhub image
+FROM dalgo_frontend:base AS builder
+WORKDIR /app
+
+ARG NEXT_PUBLIC_BACKEND_URL NEXT_PUBLIC_USAGE_DASHBOARD_ID NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED
+ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
+ENV NEXT_PUBLIC_USAGE_DASHBOARD_ID=${NEXT_PUBLIC_USAGE_DASHBOARD_ID}
+ENV NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN=${NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN}
+ENV NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA=${NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA}
+ENV NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED=${NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED}
+
+COPY --from=dalgo_frontend:base /app/node_modules ./node_modules
+COPY --from=dalgo_frontend:base /app/next.config.js ./
+COPY --from=dalgo_frontend:base /app/tsconfig.json ./
+COPY --from=dalgo_frontend:base /app/package.json ./
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN yarn build
+
+# Stage 2: run
+FROM node:20-alpine AS runner
+
+ARG BUILD_DATE
+
+LABEL maintainer="DalgoT4D"
+LABEL org.opencontainers.image.source="https://github.com/DalgoT4D/webapp"
+LABEL org.opencontainers.image.licenses="https://github.com/DalgoT4D/webapp?tab=AGPL-3.0-1-ov-file#readme"
+LABEL org.opencontainers.image.version="1.0"
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+
+WORKDIR /app
+RUN addgroup --system --gid 1001 nodejs \
+ && adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+
+RUN mkdir .next \
+ && chown nextjs:nodejs .next
+
+# This is for running it as standalone so that it can reduce the size of the image
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# You only need to copy next.config.js if you are NOT using the default configuration
+COPY --from=builder /app/next.config.js ./
+COPY --from=builder /app/tsconfig.json ./
+
+
+USER nextjs
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+EXPOSE 3000
+CMD ["node", "server.js"]

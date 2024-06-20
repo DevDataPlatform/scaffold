@@ -1,0 +1,6 @@
+gcp_project_name = "dalgo-prod"
+project_tag      = "dalgo"
+billing_code     = "BillingCode"
+region           = "us-central1"
+db_instance_type = "db-f1-micro"
+domain           = "example.com"

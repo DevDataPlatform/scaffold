@@ -1,0 +1,90 @@
+
+
+# Stage 1: build
+
+FROM ${REGION_NAME}-docker.pkg.dev/${PROJECT_ID}/frontend-repo/frontend-dep-image:latest AS builder
+WORKDIR /app
+
+ARG NEXT_PUBLIC_BACKEND_URL NEXT_PUBLIC_USAGE_DASHBOARD_ID NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED
+ENV NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
+ENV NEXT_PUBLIC_USAGE_DASHBOARD_ID=${NEXT_PUBLIC_USAGE_DASHBOARD_ID}
+ENV NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN=${NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN}
+ENV NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA=${NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA}
+ENV NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED=${NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED}
+
+COPY --from=us-central1-docker.pkg.dev/dalgo-prod/frontend-repo/frontend-dep-image:latest /app/node_modules ./node_modules
+COPY --from=us-central1-docker.pkg.dev/dalgo-prod/frontend-repo/frontend-dep-image:latest /app/next.config.js ./
+COPY --from=us-central1-docker.pkg.dev/dalgo-prod/frontend-repo/frontend-dep-image:latest /app/tsconfig.json ./
+COPY --from=us-central1-docker.pkg.dev/dalgo-prod/frontend-repo/frontend-dep-image:latest /app/package.json ./
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+RUN npm i sharp && yarn build
+
+# Stage 2: run
+FROM node:20-alpine AS runner
+
+ARG BUILD_DATE
+
+LABEL maintainer="DalgoT4D"
+LABEL org.opencontainers.image.source="https://github.com/DalgoT4D/webapp"
+LABEL org.opencontainers.image.licenses="https://github.com/DalgoT4D/webapp?tab=AGPL-3.0-1-ov-file#readme"
+LABEL org.opencontainers.image.version="1.0"
+LABEL org.opencontainers.image.created=${BUILD_DATE}
+
+RUN apk --no-cache update && apk --no-cache add \
+    curl \
+    python3 \
+    py3-crcmod \
+    bash \
+    libc6-compat \
+    openssh-client \
+    git \
+    gnupg \
+    jq \
+    && rm -rf /var/cache/apk/*
+
+# Install Google Cloud SDK
+RUN curl -o gcloud.tar.gz https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-475.0.0-linux-x86_64.tar.gz 
+    
+RUN tar xzf gcloud.tar.gz && \
+    rm gcloud.tar.gz && \
+    ln -s /lib /lib64 && \
+    ./google-cloud-sdk/install.sh \
+    --additional-components alpha beta \
+    --path-update true
+
+# Adding the package path to local
+ENV PATH=$PATH:/google-cloud-sdk/bin
+
+WORKDIR /app
+RUN addgroup --system --gid 1001 nodejs \
+ && adduser --system --uid 1001 nextjs
+
+COPY --from=builder /app/public ./public
+
+RUN mkdir .next \
+ && chown nextjs:nodejs .next
+
+# This is for running it as standalone so that it can reduce the size of the image
+COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# You only need to copy next.config.js if you are NOT using the default configuration
+COPY --from=builder /app/next.config.js ./
+COPY --from=builder /app/tsconfig.json ./
+
+
+COPY Docker/scripts/bootstrap.frontend.sh /bootstrap.sh
+
+RUN chmod +x /bootstrap.sh
+
+
+USER nextjs
+
+
+
+ENV NEXT_TELEMETRY_DISABLED=1
+
+
+EXPOSE 3000

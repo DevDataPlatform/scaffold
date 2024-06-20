@@ -1,0 +1,164 @@
+version: "3.9"
+services:
+  ## Test DB
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dalgo}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      PGDATA: /data/postgres
+    volumes:
+      - postgres:/data/postgres
+      - ./Docker/scripts/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -p 5432 -d $${POSTGRES_DB} -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+    restart: unless-stopped
+
+  ## Prefect Proxy
+  prefect_proxy:
+    image: prefect_proxy:latest #change this to point to dockerhub
+    restart: always
+    environment:
+      - LOGDIR=${LOGDIR}
+      - PREFECT_API_URL=${PREFECT_API_URL}
+    ports:
+      - "4300:4300"
+
+  ### Prefect Server API and UI
+  prefect_server:
+    image: prefecthq/prefect:2.13.5-python3.10
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - prefect:/root/.prefect
+    entrypoint: ["/opt/prefect/entrypoint.sh", "prefect", "server", "start"]
+    environment:
+      - PREFECT_UI_URL=${PREFECT_API_URL}
+      - PREFECT_API_URL=${PREFECT_API_URL}
+      - PREFECT_SERVER_API_HOST=0.0.0.0
+      - PREFECT_API_DATABASE_CONNECTION_URL=${DB_CONNECTION_URL}
+
+    ports:
+      - "4200:4200"
+
+  ## Prefect Agent
+  prefect_agent:
+    image: prefecthq/prefect:2.13.5-python3.10
+    restart: always
+    depends_on:
+      - prefect_server
+      - prefect_proxy
+    entrypoint:
+      [
+        "/opt/prefect/entrypoint.sh",
+        "prefect",
+        "agent",
+        "start",
+        "-q",
+        "${PREFECT_WORK_QUEUE_NAME}",
+        "--pool",
+        "${PREFECT_POOL_NAME}",
+      ]
+    environment:
+      - PREFECT_API_URL=http://prefect_server:4200/api
+  app:
+    image: dalgo_frontend:0.1 # Change this to dockerhub
+    restart: always
+    environment:
+      - NEXT_PUBLIC_BACKEND_URL=${NEXT_PUBLIC_BACKEND_URL}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET}
+      - NEXTAUTH_URL=${NEXTAUTH_URL}
+      - NEXT_PUBLIC_USAGE_DASHBOARD_ID=${NEXT_PUBLIC_USAGE_DASHBOARD_ID}
+      - NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN=${NEXT_PUBLIC_USAGE_DASHBOARD_DOMAIN}
+      - NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA=${NEXT_PUBLIC_DEMO_ACCOUNT_DEST_SCHEMA}
+      - CYPRESS_BASE_URL=${CYPRESS_BASE_URL}
+      - NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED=${NEXT_PUBLIC_DEMO_WALKTRHOUGH_ENABLED}
+    ports:
+      - '3000:3000'
+
+
+  redis_server:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  backend:
+    image: dalgo_backend:0.1
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8002:8002"
+    environment:
+      - DJANGOSECRET=${DJANGOSECRET}
+      - DEBUG=${DEBUG}
+      - PRODUCTION=${PRODUCTION}
+      - DEV_SECRETS_DIR=${DEV_SECRETS_DIR}
+      - USE_AWS_SECRETS_MANAGER=${USE_AWS_SECRETS_MANAGER}
+      - DBNAME=${DBNAME}
+      - DBHOST=${DBHOST}
+      - DBPORT=${DBPORT}
+      - DBUSER=${DBUSER}
+      - DBPASSWORD=${DBPASSWORD}
+      - DBADMINUSER=${DBADMINUSER}
+      - DBADMINPASSWORD=${DBADMINPASSWORD}
+      - REDIS_HOST=${REDIS_HOST}
+      - REDIS_PORT=${REDIS_PORT}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+      - SES_ACCESS_KEY_ID=${SES_ACCESS_KEY_ID}
+      - SES_SECRET_ACCESS_KEY=${SES_SECRET_ACCESS_KEY}
+      - SES_SENDER_EMAIL=${SES_SENDER_EMAIL}
+      - AIRBYTE_SERVER_HOST=${AIRBYTE_SERVER_HOST}
+      - AIRBYTE_SERVER_PORT=${AIRBYTE_SERVER_PORT}
+      - AIRBYTE_SERVER_APIVER=${AIRBYTE_SERVER_APIVER}
+      - AIRBYTE_API_TOKEN=${AIRBYTE_API_TOKEN}
+      - AIRBYTE_DESTINATION_TYPES=${AIRBYTE_DESTINATION_TYPES}
+      - PREFECT_PROXY_API_URL=${PREFECT_PROXY_API_URL}
+      - PREFECT_HTTP_TIMEOUT=${PREFECT_HTTP_TIMEOUT}
+      - CLIENTDBT_ROOT=${CLIENTDBT_ROOT}
+      - DBT_VENV=${DBT_VENV}
+      - SIGNUPCODE=${SIGNUPCODE}
+      - CREATEORG_CODE=${CREATEORG_CODE}
+      - FRONTEND_URL=${FRONTEND_URL}
+      - SENDGRID_APIKEY=${SENDGRID_APIKEY}
+      - SENDGRID_SENDER=${SENDGRID_SENDER}
+      - SENDGRID_RESET_PASSWORD_TEMPLATE=${SENDGRID_RESET_PASSWORD_TEMPLATE}
+      - SENDGRID_SIGNUP_TEMPLATE=${SENDGRID_SIGNUP_TEMPLATE}
+      - SENDGRID_INVITE_USER_TEMPLATE=${SENDGRID_INVITE_USER_TEMPLATE}
+      - SENDGRID_YOUVE_BEEN_ADDED_TEMPLATE=${SENDGRID_YOUVE_BEEN_ADDED_TEMPLATE}
+      - PREFECT_NOTIFICATIONS_WEBHOOK_KEY=${PREFECT_NOTIFICATIONS_WEBHOOK_KEY}
+      - SUPERSET_USAGE_DASHBOARD_API_URL=${SUPERSET_USAGE_DASHBOARD_API_URL}
+      - SUPERSET_USAGE_CREDS_SECRET_ID=${SUPERSET_USAGE_CREDS_SECRET_ID}
+      - FIRST_ORG_NAME=${FIRST_ORG_NAME}
+      - FIRST_USER_EMAIL=${FIRST_USER_EMAIL}
+      - ADMIN_USER_EMAIL=${ADMIN_USER_EMAIL}
+      - ADMIN_USER_PASSWORD=${ADMIN_USER_PASSWORD}
+      - DEMO_SIGNUPCODE=${DEMO_SIGNUPCODE}
+      - DEMO_AIRBYTE_SOURCE_TYPES=${DEMO_AIRBYTE_SOURCE_TYPES}
+      - DEMO_SENDGRID_SIGNUP_TEMPLATE=${DEMO_SENDGRID_SIGNUP_TEMPLATE}
+      - DEMO_SUPERSET_USERNAME=${DEMO_SUPERSET_USERNAME}
+      - DEMO_SUPERSET_PASSWORD=${DEMO_SUPERSET_PASSWORD}
+
+
+volumes:
+  prefect:
+  postgres:
+  redis_data:
+
+networks:
+  dalgo_network:
+    driver: bridge

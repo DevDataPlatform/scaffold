@@ -2,3 +2,5 @@ secrets/
 machineip.txt
 
 .env
+**/.terraform/*
+**/.terraform.lock.hcl

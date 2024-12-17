@@ -1,10 +1,9 @@
-data "aws_key_pair" "keypair" {
-  key_name = var.keypair_name
-}
   
 resource "aws_iam_role" "eks_cluster_role" {
-  name = var.cluster_role_name 
+  name = var.cluster_role_name
+  # name = data.aws_iam_role.cluster_role.name
 
+  # count = data.aws_iam_role.cluster_role.id != "" ? 0 : 1
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
@@ -21,7 +20,8 @@ resource "aws_iam_role" "eks_cluster_role" {
 }
 
 resource "aws_security_group" "eks_cluster_sg" {
-  name        = "eks-cluster-sg-sri" 
+
+  name        = "sri-eks-cluster-sg" # data.aws_security_group.cluster_sg.name
   
   description = "EKS Cluster Security Group"
   vpc_id        = var.vpc_id
@@ -51,21 +51,19 @@ resource "aws_security_group" "eks_cluster_sg" {
   }
 }
 
-# resource "aws_eks_cluster" "eks_cluster" {
-#   name     = var.cluster_name
-#   role_arn = aws_iam_role.eks_cluster_role.arn
-#   vpc_config {
-#     subnet_ids = var.subnet_ids 
-#     # subnet_ids = aws_subnet.eks_subnets[*].id
-#     security_group_ids = [aws_security_group.eks_cluster_sg.id]
-#     # security_group_ids = [aws_security_group.eks_cluster_sg[0].id]
-#     endpoint_public_access = true
-#     endpoint_private_access = false
-#   }
-#   # depends_on			= [aws_iam_role_policy_attachment.eks_cluster_policy]
-#   enabled_cluster_log_types 	= ["audit", "api", "authenticator", "scheduler", "controllerManager"]
-# }
-
+resource "aws_eks_cluster" "eks_cluster" {
+  name     = var.cluster_name
+  role_arn = aws_iam_role.eks_cluster_role.arn
+  vpc_config {
+    # subnet_ids = aws_subnet.eks_subnets[*].id
+    subnet_ids = var.subnet_ids
+    security_group_ids = [aws_security_group.eks_cluster_sg.id]
+    endpoint_public_access = true
+    endpoint_private_access = false
+  }
+  # depends_on			= [aws_iam_role_policy_attachment.eks_cluster_policy]
+  # enabled_cluster_log_types 	= ["audit", "api", "authenticator", "scheduler", "controllerManager"]
+}
 
 # EKS node group or other configurations can go here
 module "eks" {
@@ -76,13 +74,13 @@ module "eks" {
   bootstrap_self_managed_addons = false
   vpc_id = var.vpc_id
   # subnet_ids   = aws_subnet.eks_subnets[*].id 
-  subnet_ids = var.subnet_ids 
+  subnet_ids = var.subnet_ids
 
   eks_managed_node_groups = {
     example = {
       # Starting on 1.30, AL2023 is the default AMI type for EKS managed node groups
       # ami_type       = "AL2023_x86_64_STANDARD"
-      # instance_types = ["m5.xlarge", "t3.medium"]
+      # instance_types = ["m5.xlarge"]
       instance_types = ["t3a.micro"]
 
       min_size     = 2
@@ -96,12 +94,13 @@ module "eks_managed_node_group" {
   source  = "terraform-aws-modules/eks/aws//modules/eks-managed-node-group"
   version = "20.31.1"
 
-  cluster_name = var.cluster_name # module.eks.cluster_id
+  cluster_name = module.eks.cluster_id
   cluster_version = "1.27"
-  subnet_ids = var.subnet_ids 
+  # subnet_ids = aws_subnet.eks_subnets[*].id
+  subnet_ids = var.subnet_ids
   name = "managed-node-group"
   cluster_service_cidr = var.vpc_cidr
 
-  key_name = data.aws_key_pair.keypair.key_name
+  key_name = "sri-eks-keypair"
 }
 

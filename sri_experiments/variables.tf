@@ -4,7 +4,7 @@ variable "region" {
 
 variable "cluster_name" {
   type        	= string
-  default 	= "sri-eks-cluster"
+  default 	= "sri"
 }
 
 variable "vpc_id" {
